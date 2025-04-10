@@ -1,0 +1,52 @@
+blueprint:
+  name: Universal Switch Control for Load
+  description: Управление нагрузкой (light или switch) с помощью нескольких выключателей (binary sensors) с выбором логики управления.
+  domain: automation
+  input:
+    load_entity:
+      name: Нагрузка
+      description: Сущность для управления (light или switch).
+      selector:
+        entity:
+          multiple: true
+          domain: [light, switch]
+    binary_sensors:
+      name: Выключатели
+      description: Список выключателей (binary sensors) для управления нагрузкой.
+      selector:
+        entity:
+          multiple: true
+          domain: binary_sensor
+    logic_type:
+      name: Тип логики
+      description: Выберите логику управления ('toggle' — переключение, 'independent' — независимое управление).
+      selector:
+        select:
+          options:
+            - toggle
+            - independent
+
+trigger:
+  - platform: state
+    entity_id: !input binary_sensors
+
+action:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ logic_type == 'toggle' }}"
+          - condition: template
+            value_template: "{{ trigger.from_state.state in ['on', 'off'] and trigger.to_state.state in ['on', 'off'] and trigger.from_state.state != trigger.to_state.state }}"
+        sequence:
+          - service: "{{ load_entity.split('.')[0] }}.toggle"
+            target:
+              entity_id: !input load_entity
+      - conditions:
+          - condition: template
+            value_template: "{{ logic_type == 'independent' }}"
+          - condition: template
+            value_template: "{{ trigger.from_state.state in ['on', 'off'] and trigger.to_state.state in ['on', 'off'] }}"
+        sequence:
+          - service: "{{ 'turn_on' if trigger.to_state.state == 'on' else 'turn_off' }}"
+            target:
+              entity_id: !input load_entity

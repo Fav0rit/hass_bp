@@ -1,0 +1,98 @@
+blueprint:
+  name: Toilet Ventilation Control
+  description: Автоматизация вентиляции в туалете. Вентиляция включается, если свет включён дольше заданного времени, и выключается после выключения света с задержкой или по максимальному времени работы.
+  domain: automation
+  input:
+    light_entities:
+      name: Группы света
+      description: Выберите группы света в туалете (light).
+      selector:
+        entity:
+          multiple: true
+          domain: light
+    fan_entities:
+      name: Вентиляторы
+      description: Выберите вентиляторы (switch или fan) для управления.
+      selector:
+        entity:
+          multiple: true
+          domain: [switch, fan]
+    delay_on_seconds:
+      name: Задержка включения (в секундах)
+      description: Время в секундах, после которого включается вентиляция, если свет включён.
+      default: 60
+      selector:
+        number:
+          min: 1
+          max: 3600
+          unit_of_measurement: seconds
+    delay_off_seconds:
+      name: Задержка выключения (в секундах)
+      description: Время в секундах, через которое вентиляция выключается после выключения света.
+      default: 300
+      selector:
+        number:
+          min: 1
+          max: 3600
+          unit_of_measurement: seconds
+    max_run_time:
+      name: Максимальное время работы (в минутах)
+      description: Максимальное время работы вентиляции (в минутах), после которого она выключается.
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 240
+          unit_of_measurement: minutes
+
+trigger:
+  - platform: state
+    entity_id: !input light_entities
+    to: "on"
+    for:
+      seconds: !input delay_on_seconds
+  - platform: state
+    entity_id: !input light_entities
+    to: "off"
+  - platform: state
+    entity_id: !input fan_entities
+    to: "on"
+    for:
+      minutes: !input max_run_time
+
+variables:
+  light_entities: !input light_entities
+  fan_entities: !input fan_entities
+
+condition:
+  - condition: template
+    value_template: >
+      {{ (trigger.to_state.state == 'on' and trigger.entity_id in light_entities) or 
+         (trigger.to_state.state == 'off' and states.light | selectattr('entity_id', 'in', light_entities) | selectattr('state', 'eq', 'on') | list | count == 0) or 
+         (trigger.to_state.state == 'on' and trigger.entity_id in fan_entities) }}
+
+action:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.to_state.state == 'on' and trigger.entity_id in light_entities }}"
+        sequence:
+          - service: "{{ fan_entities[0].split('.')[0] }}.turn_on"
+            target:
+              entity_id: !input fan_entities
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.to_state.state == 'off' and states.light | selectattr('entity_id', 'in', light_entities) | selectattr('state', 'eq', 'on') | list | count == 0 }}"
+        sequence:
+          - delay:
+              seconds: !input delay_off_seconds
+          - service: "{{ fan_entities[0].split('.')[0] }}.turn_off"
+            target:
+              entity_id: !input fan_entities
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.to_state.state == 'on' and trigger.entity_id in fan_entities }}"
+        sequence:
+          - service: "{{ fan_entities[0].split('.')[0] }}.turn_off"
+            target:
+              entity_id: !input fan_entities

@@ -1,0 +1,84 @@
+blueprint:
+  name: Bathroom Ventilation Time Control
+  description: Автоматизация вентиляции в ванной. Вентиляция включается при выключении света, если он работал дольше заданного времени, и выключается по максимальному времени работы.
+  domain: automation
+  input:
+    light_entities:
+      name: Группы света
+      description: Выберите группы света в ванной (light).
+      selector:
+        entity:
+          multiple: true
+          domain: light
+    fan_entities:
+      name: Вентиляторы
+      description: Выберите вентиляторы (switch или fan) для управления.
+      selector:
+        entity:
+          multiple: true
+          domain: [switch, fan]
+    time_threshold:
+      name: Минимальное время работы света (в минутах)
+      description: Время в минутах, после которого вентиляция включается при выключении света.
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 120
+          unit_of_measurement: minutes
+    max_run_time:
+      name: Максимальное время работы (в минутах)
+      description: Максимальное время работы вентиляции (в минутах), после которого она выключается.
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 240
+          unit_of_measurement: minutes
+
+trigger:
+  - platform: state
+    entity_id: !input light_entities
+    to: "off"
+  - platform: state
+    entity_id: !input fan_entities
+    to: "on"
+    for:
+      minutes: !input max_run_time
+
+variables:
+  light_entities: !input light_entities
+  fan_entities: !input fan_entities
+  time_threshold: !input time_threshold
+  last_on_time: >-
+    {% set last_on = states[trigger.entity_id].last_changed %}
+    {% set now = now() %}
+    {{ (now - last_on).total_seconds() / 60 if last_on is not none else 0 }}
+
+condition:
+  - condition: template
+    value_template: >
+      {% if trigger.entity_id in light_entities %}
+        {{ last_on_time > time_threshold }}
+      {% elif trigger.entity_id in fan_entities %}
+        {{ true }}
+      {% else %}
+        {{ false }}
+      {% endif %}
+
+action:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.entity_id in light_entities }}"
+        sequence:
+          - service: "{{ fan_entities[0].split('.')[0] }}.turn_on"
+            target:
+              entity_id: !input fan_entities
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.entity_id in fan_entities }}"
+        sequence:
+          - service: "{{ fan_entities[0].split('.')[0] }}.turn_off"
+            target:
+              entity_id: !input fan_entities
