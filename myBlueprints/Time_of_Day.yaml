@@ -1,6 +1,6 @@
 blueprint:
   name: Time of Day Control
-  description: Управление списком "Время суток" на основе восхода/захода солнца и пользовательских времён для будних и выходных дней.
+  description: Управление списком "Время суток" на основе восхода/захода солнца и пользовательских времён для будних и выходных дней.<br>ver. 0.2b
   domain: automation
   input:
     time_of_day_entity:
@@ -31,16 +31,19 @@ blueprint:
 trigger:
   - platform: sun
     event: sunrise
+    id: sunrise # Явный ID
   - platform: time
     at: !input weekday_morning_time
+    id: weekday_morning # ID для буднего утра
   - platform: time
     at: !input weekend_morning_time
+    id: weekend_morning # ID для выходного утра
   - platform: sun
     event: sunset
+    id: sunset # ID заката
   - platform: time
     at: !input night_time
-
-condition: []
+    id: night_time # ID ночи
 
 action:
   - choose:
@@ -54,7 +57,7 @@ action:
               option: Рассвет
       - conditions:
           - condition: trigger
-            id: "weekday_morning_time"
+            id: "weekday_morning"
           - condition: template
             value_template: "{{ now().weekday() < 5 }}"
         sequence:
@@ -64,7 +67,7 @@ action:
               option: День
       - conditions:
           - condition: trigger
-            id: "weekend_morning_time"
+            id: "weekend_morning"
           - condition: template
             value_template: "{{ now().weekday() >= 5 }}"
         sequence:
