@@ -1,6 +1,6 @@
 blueprint:
   name: Presence Control with Timer
-  description: Управление режимом присутствия с таймером. Переключает input_select.presence между "Кто-то дома", "Никого нет" и "Длительное отсутствие" с визуальным отслеживанием через timer.presence_check.
+  description: Управление режимом присутствия с таймером. Переключает input_select.presence между "Кто-то дома", "Никого нет" и "Длительное отсутствие" с визуальным отслеживанием через timer.presence_check.<br>ver 0.3b
   domain: automation
   input:
     presence_entity:
@@ -16,7 +16,7 @@ blueprint:
         entity:
           multiple: true
           domain: binary_sensor
-          device_class: motion
+          device_class: occupancy
     switches:
       name: Выключатели
       description: Выберите выключатели (binary_sensor) для определения активности.
@@ -133,6 +133,11 @@ action:
           - condition: template
             value_template: "{{ trigger.entity_id == door_sensor }}"
         sequence:
+          - delay:
+              seconds: 60
+          - condition: template
+            value_template: >
+              {{ not is_state(motion_sensors, 'on') and not is_state(switches, 'on') }}
           - service: timer.start
             data:
               entity_id: !input presence_timer

@@ -1,29 +1,25 @@
 blueprint:
   name: Time of Day Control
-  description: Управление списком "Время суток" на основе восхода/захода солнца и пользовательских времён для будних и выходных дней.<br>ver. 0.2b
+  description: Управление временем суток с приоритетом ночи по времени и вечера после дня.<br>ver. 0.4b
   domain: automation
   input:
     time_of_day_entity:
       name: Список "Время суток"
-      description: Выберите сущность input_select.time_of_day.
       selector:
         entity:
           domain: input_select
     weekday_morning_time:
       name: Время начала дня (будни)
-      description: Время начала "День" в будние дни (например, 08:00).
       default: "08:00"
       selector:
         time:
     weekend_morning_time:
       name: Время начала дня (выходные)
-      description: Время начала "День" в выходные дни (например, 09:30).
       default: "09:30"
       selector:
         time:
     night_time:
       name: Время начала ночи
-      description: Время начала "Ночь" (например, 23:00).
       default: "23:00"
       selector:
         time:
@@ -31,33 +27,37 @@ blueprint:
 trigger:
   - platform: sun
     event: sunrise
-    id: sunrise # Явный ID
+    id: sunrise
   - platform: time
     at: !input weekday_morning_time
-    id: weekday_morning # ID для буднего утра
+    id: weekday_morning
   - platform: time
     at: !input weekend_morning_time
-    id: weekend_morning # ID для выходного утра
+    id: weekend_morning
   - platform: sun
     event: sunset
-    id: sunset # ID заката
+    id: sunset
   - platform: time
     at: !input night_time
-    id: night_time # ID ночи
+    id: night_time
 
 action:
   - choose:
       - conditions:
           - condition: trigger
-            id: "sunrise"
+            id: sunrise
+          - condition: template
+            value_template: >
+              {{ states(input.time_of_day_entity) not in ['День','Вечер','Ночь'] }}
         sequence:
           - service: input_select.select_option
             data:
               entity_id: !input time_of_day_entity
               option: Рассвет
+              
       - conditions:
           - condition: trigger
-            id: "weekday_morning"
+            id: weekday_morning
           - condition: template
             value_template: "{{ now().weekday() < 5 }}"
         sequence:
@@ -65,9 +65,10 @@ action:
             data:
               entity_id: !input time_of_day_entity
               option: День
+              
       - conditions:
           - condition: trigger
-            id: "weekend_morning"
+            id: weekend_morning
           - condition: template
             value_template: "{{ now().weekday() >= 5 }}"
         sequence:
@@ -75,17 +76,22 @@ action:
             data:
               entity_id: !input time_of_day_entity
               option: День
+              
       - conditions:
           - condition: trigger
-            id: "sunset"
+            id: sunset
+          - condition: state
+            entity_id: !input time_of_day_entity
+            state: День
         sequence:
           - service: input_select.select_option
             data:
               entity_id: !input time_of_day_entity
               option: Вечер
+              
       - conditions:
           - condition: trigger
-            id: "night_time"
+            id: night_time
         sequence:
           - service: input_select.select_option
             data:
