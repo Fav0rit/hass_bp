@@ -1,160 +1,173 @@
+mode: restart
 blueprint:
   name: Presence Control with Timer
-  description: Управление режимом присутствия с таймером. Переключает input_select.presence между "Кто-то дома", "Никого нет" и "Длительное отсутствие" с визуальным отслеживанием через timer.presence_check.<br>ver 0.3b
+  description: >
+    Управление режимами присутствия с учётом движения, выключателей, двери и времени суток.
+    Автоматически переключает статус "Кто-то дома", "Никого нет", "Длительное отсутствие".<br>
+    ver. 1.0
   domain: automation
   input:
     presence_entity:
       name: Список "Присутствие"
-      description: Выберите сущность input_select.presence.
+      description: input_select с режимами присутствия
       selector:
         entity:
           domain: input_select
+
     motion_sensors:
       name: Датчики движения
-      description: Выберите датчики движения (binary_sensor) для определения присутствия.
+      description: Сенсоры движения (occupancy)
       selector:
         entity:
           multiple: true
           domain: binary_sensor
           device_class: occupancy
+
     switches:
       name: Выключатели
-      description: Выберите выключатели (binary_sensor) для определения активности.
+      description: Переключатели для фиксации активности
       selector:
         entity:
           multiple: true
           domain: binary_sensor
+
     door_sensor:
       name: Датчик двери
-      description: Выберите датчик двери (binary_sensor), где "off" — закрыта, "on" — открыта.
+      description: off — закрыта, on — открыта
       selector:
         entity:
           domain: binary_sensor
           device_class: door
+
     time_of_day_entity:
       name: Список "Время суток"
-      description: Выберите сущность input_select.time_of_day для исключения ночи.
+      description: input_select с текущим временем суток (Утро, День, Вечер, Ночь)
       selector:
         entity:
           domain: input_select
+
     presence_timer:
       name: Таймер присутствия
-      description: Выберите сущность timer.presence_check для отслеживания времени отсутствия активности.
+      description: Отсчёт до режима "Никого нет"
       selector:
         entity:
           domain: timer
+
     no_presence_delay:
-      name: Задержка для "Никого нет" (в минутах)
-      description: Время в минутах без активности после закрытия двери, после которого включается "Никого нет".
-      default: 30
+      name: Задержка до "Никого нет" (минуты)
+      default: 15
       selector:
         number:
           min: 1
-          max: 1440
+          max: 60
           unit_of_measurement: minutes
+
     long_absence_days:
-      name: Задержка для "Длительное отсутствие" (в днях)
-      description: Количество дней в режиме "Никого нет", после которого включается "Длительное отсутствие".
-      default: 7
+      name: Порог "Длительное отсутствие" (дни)
+      default: 2
       selector:
         number:
           min: 1
-          max: 365
+          max: 5
           unit_of_measurement: days
+
+variables:
+  var_time_of_day: !input time_of_day_entity
 
 trigger:
   - platform: state
     entity_id: !input motion_sensors
+    to: "on"
+    id: motion_trigger
+
+  - platform: state
+    entity_id: !input switches
     from: "off"
     to: "on"
+    id: switch_on_trigger
+
   - platform: state
     entity_id: !input switches
     from: "on"
     to: "off"
-  - platform: state
-    entity_id: !input switches
-    from: "off"
-    to: "on"
+    id: switch_off_trigger
+
   - platform: state
     entity_id: !input door_sensor
+    from: "on"
     to: "off"
+    id: door_trigger
+
   - platform: event
     event_type: timer.finished
     event_data:
       entity_id: !input presence_timer
+    id: timer_finished_trigger
+
   - platform: state
     entity_id: !input presence_entity
     to: "Никого нет"
     for:
       days: !input long_absence_days
+    id: long_absence_trigger
 
-variables:
-  presence_entity: !input presence_entity
-  motion_sensors: !input motion_sensors
-  switches: !input switches
-  door_sensor: !input door_sensor
-  time_of_day_entity: !input time_of_day_entity
-  presence_timer: !input presence_timer
-  no_presence_delay: !input no_presence_delay
-
-condition:
-  - condition: template
-    value_template: >
-      {% if trigger.entity_id in motion_sensors or trigger.entity_id in switches %}
-        {{ trigger.from_state.state in ['on', 'off'] and trigger.to_state.state in ['on', 'off'] }}
-      {% elif trigger.entity_id == door_sensor %}
-        {{ states(time_of_day_entity) != 'Ночь' and states(presence_entity) != 'Кто-то дома' }}
-      {% elif trigger.event_type == 'timer.finished' %}
-        {{ trigger.event_data.entity_id == presence_timer and states(door_sensor) == 'off' }}
-      {% elif trigger.entity_id == presence_entity %}
-        {{ true }}
-      {% else %}
-        {{ false }}
-      {% endif %}
+condition: []
 
 action:
   - choose:
       - conditions:
-          - condition: or
-            conditions:
-              - condition: template
-                value_template: "{{ trigger.entity_id in motion_sensors }}"
-              - condition: template
-                value_template: "{{ trigger.entity_id in switches }}"
+          - condition: trigger
+            id: motion_trigger
         sequence:
           - service: input_select.select_option
             data:
               entity_id: !input presence_entity
-              option: Кто-то дома
+              option: "Кто-то дома"
           - service: timer.cancel
             data:
               entity_id: !input presence_timer
+
       - conditions:
-          - condition: template
-            value_template: "{{ trigger.entity_id == door_sensor }}"
+          - condition: trigger
+            id:
+              - switch_on_trigger
+              - switch_off_trigger
         sequence:
-          - delay:
-              seconds: 60
+          - service: input_select.select_option
+            data:
+              entity_id: !input presence_entity
+              option: "Кто-то дома"
+          - service: timer.cancel
+            data:
+              entity_id: !input presence_timer
+
+      - conditions:
+          - condition: trigger
+            id: door_trigger
           - condition: template
             value_template: >
-              {{ not is_state(motion_sensors, 'on') and not is_state(switches, 'on') }}
+              {{ states(var_time_of_day) != 'Ночь' }}
+        sequence:
           - service: timer.start
             data:
               entity_id: !input presence_timer
-              duration: "{{ '00:' + no_presence_delay|string + ':00' }}"
+              duration:
+                minutes: !input no_presence_delay
+
       - conditions:
-          - condition: template
-            value_template: "{{ trigger.event_type == 'timer.finished' }}"
+          - condition: trigger
+            id: timer_finished_trigger
         sequence:
           - service: input_select.select_option
             data:
               entity_id: !input presence_entity
-              option: Никого нет
+              option: "Никого нет"
+
       - conditions:
-          - condition: template
-            value_template: "{{ trigger.entity_id == presence_entity }}"
+          - condition: trigger
+            id: long_absence_trigger
         sequence:
           - service: input_select.select_option
             data:
               entity_id: !input presence_entity
-              option: Длительное отсутствие
+              option: "Длительное отсутствие"
